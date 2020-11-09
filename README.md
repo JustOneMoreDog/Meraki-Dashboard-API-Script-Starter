@@ -116,7 +116,7 @@ Sites = [
     {
         'ACL': [
             # Note that I have customized the data returned from the API call for ACL/FW/VPN rules
-            # This is because the ACL vs FW/VPN data is slightly different so in an effort to keep things easy I made it homogenise
+            # This is because the ACL vs FW/VPN data is slightly different so in an effort to keep things easy I made it uniform
             {
                 '#': str,
                 'comment': str,
