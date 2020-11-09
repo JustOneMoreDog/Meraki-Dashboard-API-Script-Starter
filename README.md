@@ -112,7 +112,7 @@ I used the Meraki Dashboard API to learn Python and would like to now provide an
 ## Sites Variable Structure
 ```
 Sites = [
-    # For each site in the orginization we will have the following
+    # For each site in the orginization we will have the following dictionary 
     {
         'ACL': [
             # Note that I have customized the data returned from the API call for ACL/FW/VPN rules
