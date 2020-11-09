@@ -1,8 +1,8 @@
 # Meraki Dashboard API Script Starter
-A template designed to help others learn Python and or the Meraki Dashboard API 
+A template designed to help others learn Python and or the Meraki Dashboard API. 
 
 # Summary
-I used the Meraki Dashboard API to learn Python and would like to now provide an easy way for others to follow in my footsteps. I have created this simple script starter that will allow the user to focus on learning Python more than the API . I do this by constructing a `sites` variable. In the context of this script, a "site" is defined as a Meraki Network. While this variable does not contain every single bit of data you can get from the Dashboard API, it does contain enough information to get you started on a very large variety of scripts.
+I used the Meraki Dashboard API to learn Python and would like to now provide an easy way for others to follow in my footsteps. I have created this simple script starter that will allow the user to focus on learning Python more than the API . I do this by constructing a `sites` variable. In the context of this script, a "site" is defined as a Meraki Network. I use Pickle (Python object serialization) to store data across all the sites in a given organization so that you do not have to keep making API calls while building your scripts. Once your script is built, you can make fresh API calls to ensure everything works with live data. While this variable does not contain every single bit of data you can get from the Dashboard API, it does contain enough information to get you started on a very large variety of scripts.
 
 ## Usage
  - Python Console
