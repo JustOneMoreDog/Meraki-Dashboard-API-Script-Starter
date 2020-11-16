@@ -22,7 +22,7 @@ I used the Meraki Dashboard API to learn Python and would like to now provide an
          - https://www.jetbrains.com/help/pycharm/manage-projects-hosted-on-github.html#clone-from-GitHub
      - After you have PyCharm setup and the dependencies installed, all you need to do is right click anywhere in the script and select "Run File in Python Console"
      - Note that when you run things in the Python Console on PyCharm that things may not always print out correctly (for example the progress bars)    
-## Examples 1
+## Examples
  - Printing the name of your organization
     ```
     for site in sites:
