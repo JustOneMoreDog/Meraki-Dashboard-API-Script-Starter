@@ -4,6 +4,10 @@ A template designed to help others learn Python and or the Meraki Dashboard API.
 # Summary
 I used the Meraki Dashboard API to learn Python and would like to now provide an easy way for others to follow in my footsteps. I have created this simple script starter that will allow the user to focus on learning Python more than the API . I do this by constructing a `sites` variable. In the context of this script, a "site" is defined as a Meraki Network. I use Pickle (Python object serialization) to store data across all the sites in a given organization so that you do not have to keep making API calls while building your scripts. Once your script is built, you can make fresh API calls to ensure everything works with live data. While this variable does not contain every single bit of data you can get from the Dashboard API, it does contain enough information to get you started on a very large variety of scripts.
 
+I have another repository in which I use this sites variable to perform in-depth traffic analysis. Check it out [here](https://github.com/picnicsecurity/Meraki-Traffic-Analyzer)
+
+The other Meraki repository that I have, [Meraki API Toolbox](https://github.com/picnicsecurity/MerakiAPIToolBox), was made using the v0 of the Dashboard API. If I had time I would rewrite it using this sites variable as it would greatly optomize the code and allow me to add a bunch of features that were not possible with the v0 of the Dashboard API. 
+
 ## Usage
  - API Key Setup
      - On [Line 398](https://github.com/picnicsecurity/Meraki-Dashboard-API-Script-Starter/blob/main/starter.py#L398) you will a variable called `apikey`. This is where you put your [Dashboard API Key](https://documentation.meraki.com/General_Administration/Other_Topics/The_Cisco_Meraki_Dashboard_API). By default the script will assume that your key is in a file in the same directory called `apikey`. The .gitignore will automatically ignore this file in an effort to prevent unintentional key leakage.
