@@ -200,6 +200,32 @@ Sites = [
                 'model' = str, 
                 'name' = str,
                 'networkId' = str,
+                'ports' = [
+					              {
+                        "portId": str,
+                        "name": str,
+                        "tags": [
+                            str
+                        ],
+                        "enabled": bool,
+                        "poeEnabled": bool,
+                        "type": str,
+                        "vlan": int,
+                        "voiceVlan": int,
+                        "isolationEnabled": bool,
+                        "rstpEnabled": bool,
+                        "stpGuard": str,
+                        "linkNegotiation": str,
+                        "portScheduleId": str,
+                        "udld": str,
+                        "accessPolicyType": str,
+                        "stickyMacAllowList": [
+                            str
+                        ],
+                        "stickyMacAllowListLimit": int,
+                        "stormControlEnabled": bool
+					              }
+                ],
                 'serial' = str,
                 'tags' = [
                     str
