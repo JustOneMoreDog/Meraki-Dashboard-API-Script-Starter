@@ -271,12 +271,22 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
 
         # Gathering the devices
         printv("Gathering VLAN data from switches", sitesPBar)
-        devices = [device for device in dashboard.networks.getNetworkDevices(networkId=networkId)
-                   if 'MS' in device['model'] or 'MR' in device['model']]
-        for device in devices:
+        msDevices = []
+        mrDevices = []
+        for device in dashboard.networks.getNetworkDevices(networkId=networkId):
             if 'name' not in device:
                 device['name'] = device['mac']
-        devices.sort(key=lambda x: x['name'], reverse=True)
+            if 'MS' in device['model']:
+                device['ports'] = dashboard.switch.getDeviceSwitchPorts(serial=device['serial'])
+                msDevices.append(device)
+            if 'MR' in device['model']:
+                device['ports'] = None
+                msDevices.append(device)
+        msDevices.sort(key=lambda x: x['name'], reverse=True)
+        mrDevices.sort(key=lambda x: x['name'], reverse=True)
+        # Since the juicy information that we are most likely to care about will be in the MS, we put it first
+        devices = msDevices + mrDevices
+
         sitesPBar.update(2.5)
 
         # Checking for layer 3 interfaces
@@ -401,17 +411,20 @@ if apikey == '':
         apikey = k.readline().strip()
 dashboard = mer.DashboardAPI(
     api_key=apikey,
-    print_console=False,
+    print_console=VERBOSE,
     maximum_retries=3,
     wait_on_rate_limit=True,
     log_path=MERLOGDIR,
     retry_4xx_error=True,
     single_request_timeout=300
 )
-
 organizations = dashboard.organizations.getOrganizations()
 orgID = organizations[0]['id']
 networks = dashboard.organizations.getOrganizationNetworks(orgID)
+
+# Change this to True if you wish to backup your current sites variable and then get a new one
+if True:
+    os.rename('sites.pkl', 'sites_' + str(int(time.time())) + '.pkl')
 
 if os.path.isfile('sites.pkl'):
     sites = load_sites('sites.pkl')
