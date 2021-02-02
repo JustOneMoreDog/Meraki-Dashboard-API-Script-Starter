@@ -6,6 +6,7 @@ from tqdm import tqdm
 from tqdm.utils import _term_move_up
 import os
 import time
+import shutil
 
 
 # Logs go into a log directory and are $(unix time).log
@@ -22,7 +23,7 @@ if not os.path.isdir(MERLOGDIR):
     os.mkdir(MERLOGDIR)
 
 global VERBOSE
-VERBOSE = True
+VERBOSE = False
 
 global TERMSIZE
 TERMSIZE = 1
@@ -270,18 +271,74 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
         # Next we check for any layer 3 interfaces on switches that are not in stacks
 
         # Gathering the devices
-        printv("Gathering VLAN data from switches", sitesPBar)
+        printv("Gathering port data from switches", sitesPBar)
         msDevices = []
         mrDevices = []
         for device in dashboard.networks.getNetworkDevices(networkId=networkId):
             if 'name' not in device:
                 device['name'] = device['mac']
             if 'MS' in device['model']:
-                device['ports'] = dashboard.switch.getDeviceSwitchPorts(serial=device['serial'])
+                ports = dashboard.switch.getDeviceSwitchPorts(serial=device['serial'])
+                lldpcdp = dashboard.devices.getDeviceLldpCdp(serial=device['serial'])
+                if 'ports' in lldpcdp:
+                    lldpcdp = lldpcdp['ports']
+                for port in ports:
+                    cdp = dict()
+                    lldp = dict()
+                    if port['portId'] in lldpcdp:
+                        # Some of these keys are not always in the return body so we have to manually check each one
+                        # CDP
+                        if 'cdp' in lldpcdp[port['portId']]:
+                            # Source Port
+                            if "sourcePort" in lldpcdp[port['portId']]['cdp']:
+                                cdp["sourcePort"] = lldpcdp[port['portId']]['cdp']["sourcePort"]
+                            else:
+                                cdp["sourcePort"] = ''
+                            # Device ID
+                            if "deviceId" in lldpcdp[port['portId']]['cdp']:
+                                cdp["deviceId"] = lldpcdp[port['portId']]['cdp']["deviceId"]
+                            else:
+                                cdp["deviceId"] = ''
+                            # Address
+                            if "address" in lldpcdp[port['portId']]['cdp']:
+                                cdp["address"] = lldpcdp[port['portId']]['cdp']["address"]
+                            else:
+                                cdp["address"] = ''
+                            # Port ID
+                            if "portId" in lldpcdp[port['portId']]['cdp']:
+                                cdp["portId"] = lldpcdp[port['portId']]['cdp']["portId"]
+                            else:
+                                cdp["portId"] = ''
+                        # LLDP
+                        if 'lldp' in lldpcdp[port['portId']]:
+                            # Source Port
+                            if "sourcePort" in lldpcdp[port['portId']]['lldp']:
+                                lldp["sourcePort"] = lldpcdp[port['portId']]['lldp']["sourcePort"]
+                            else:
+                                lldp["sourcePort"] = ''
+                            # System Name
+                            if "systemName" in lldpcdp[port['portId']]['lldp']:
+                                lldp["systemName"] = lldpcdp[port['portId']]['lldp']["systemName"]
+                            else:
+                                lldp["systemName"] = ''
+                            # Management Address
+                            if "managementAddress" in lldpcdp[port['portId']]['lldp']:
+                                lldp["managementAddress"] = lldpcdp[port['portId']]['lldp']["managementAddress"]
+                            else:
+                                lldp["managementAddress"] = ''
+                            # Port ID
+                            if "portId" in lldpcdp[port['portId']]['lldp']:
+                                lldp["portId"] = lldpcdp[port['portId']]['lldp']["portId"]
+                            else:
+                                lldp["portId"] = ''
+                    # Adding the data to the port data
+                    port['cdp'] = cdp
+                    port['lldp'] = lldp
                 msDevices.append(device)
             if 'MR' in device['model']:
                 device['ports'] = None
                 msDevices.append(device)
+
         msDevices.sort(key=lambda x: x['name'], reverse=True)
         mrDevices.sort(key=lambda x: x['name'], reverse=True)
         # Since the juicy information that we are most likely to care about will be in the MS, we put it first
@@ -335,9 +392,9 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
         clientsFound = False
         if not get_clients:
             printv("Gathering client data from the site's devices", sitesPBar)
-            if os.path.isfile('sites.pkl'):
+            if os.path.isfile('sites.pkl.old'):
                 printv("Loading previous clients data", sitesPBar)
-                sites_bkp = load_sites('sites.pkl')
+                sites_bkp = load_sites('sites.pkl.old')
                 site_bkp = [site for site in sites_bkp if site['Name'] == siteName]
                 if len(site_bkp) > 0:
                     clients = site_bkp[0]['Clients']
@@ -423,11 +480,15 @@ orgID = organizations[0]['id']
 networks = dashboard.organizations.getOrganizationNetworks(orgID)
 
 # Change this to True if you wish to backup your current sites variable and then get a new one
-if True:
+if False:
+    # This is so our get_sites function can still get our client data easily
+    shutil.copy('sites.pkl', 'sites.pkl.old')
+    # This will be our actual historical copy that the code will never touch
     os.rename('sites.pkl', 'sites_' + str(int(time.time())) + '.pkl')
 
 if os.path.isfile('sites.pkl'):
     sites = load_sites('sites.pkl')
 else:
-    sites = get_sites(dashboard, orgID, networks, get_clients=True)
+    sites = get_sites(dashboard, orgID, networks, get_clients=False)
     save_sites('sites.pkl', sites)
+
