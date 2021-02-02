@@ -489,6 +489,6 @@ if False:
 if os.path.isfile('sites.pkl'):
     sites = load_sites('sites.pkl')
 else:
-    sites = get_sites(dashboard, orgID, networks, get_clients=False)
+    sites = get_sites(dashboard, orgID, networks, get_clients=True)
     save_sites('sites.pkl', sites)
 
