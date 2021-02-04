@@ -491,4 +491,3 @@ if os.path.isfile('sites.pkl'):
 else:
     sites = get_sites(dashboard, orgID, networks, get_clients=True)
     save_sites('sites.pkl', sites)
-
