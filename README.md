@@ -201,30 +201,42 @@ Sites = [
                 'name' = str,
                 'networkId' = str,
                 'ports' = [
-					              {
-                        "portId": str,
-                        "name": str,
-                        "tags": [
-                            str
-                        ],
-                        "enabled": bool,
-                        "poeEnabled": bool,
-                        "type": str,
-                        "vlan": int,
-                        "voiceVlan": int,
-                        "isolationEnabled": bool,
-                        "rstpEnabled": bool,
-                        "stpGuard": str,
-                        "linkNegotiation": str,
-                        "portScheduleId": str,
-                        "udld": str,
-                        "accessPolicyType": str,
-                        "stickyMacAllowList": [
-                            str
-                        ],
-                        "stickyMacAllowListLimit": int,
-                        "stormControlEnabled": bool
-					              }
+			{
+				"portId": str,
+				"name": str,
+				"tags": [
+				    str
+				],
+				"enabled": bool,
+				"poeEnabled": bool,
+				"type": str,
+				"vlan": int,
+				"voiceVlan": int,
+				"isolationEnabled": bool,
+				"rstpEnabled": bool,
+				"stpGuard": str,
+				"linkNegotiation": str,
+				"portScheduleId": str,
+				"udld": str,
+				"accessPolicyType": str,
+				"stickyMacAllowList": [
+				    str
+				],
+				"stickyMacAllowListLimit": int,
+				"stormControlEnabled": bool,
+				"cdp": {
+					"sourcePort": str,
+					"deviceId": str,
+					"address": str,
+					"portId": str
+				}
+				"lldp": {
+					"sourcePort": str,
+					"systemName": str,
+					"managementAddress": str,
+					"portId": str
+				}
+			}
                 ],
                 'serial' = str,
                 'tags' = [
