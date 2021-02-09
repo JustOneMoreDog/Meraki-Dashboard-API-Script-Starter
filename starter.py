@@ -334,6 +334,7 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
                     # Adding the data to the port data
                     port['cdp'] = cdp
                     port['lldp'] = lldp
+                device['ports'] = ports
                 msDevices.append(device)
             if 'MR' in device['model']:
                 device['ports'] = None
