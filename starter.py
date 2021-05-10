@@ -215,32 +215,30 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
         'VPNSubnets': [],
         'ACL': [],
         'Firewall': [],
-        'Cidrs': []
+        'Cidrs': [],
+        'Products': []
     }
     sites.append(organizationWide)
-    print(("-" * (TERMSIZE)) + "\n")
 
     for network in networks:
-
-        sitesPBar = tqdm(range(0, 100), leave=True)
-        sitesPBar.set_description("Processing %s" % network['name'])
+        print("Working on %s" % network['name'])
+        sitesPBar = None
 
         # Site Name and ID
-        printv("Gathering identifiers", sitesPBar)
         siteName = network['name']
         networkId = network['id']
-        sitesPBar.update(20)
+        products = network['productTypes']
 
         # VPN Subnets
-        printv("Gathering VPN data", sitesPBar)
-        peers = get_org_remote_vpn_participants(dashboard, organizationId, networkId)
-        sitesPBar.update(10)
-        vpnSubnets = [
-            IPNetwork(subnet['localSubnet'])
-            for subnet in dashboard.appliance.getNetworkApplianceVpnSiteToSiteVpn(networkId)['subnets']
-            if subnet['useVpn']
-        ]
-        sitesPBar.update(10)
+        peers = []
+        vpnSubnets = []
+        if 'appliance' in products:
+            peers = get_org_remote_vpn_participants(dashboard, organizationId, networkId)
+            vpnSubnets = [
+                IPNetwork(subnet['localSubnet'])
+                for subnet in dashboard.appliance.getNetworkApplianceVpnSiteToSiteVpn(networkId)['subnets']
+                if subnet['useVpn']
+            ]
 
         # VLANs
         printv("Gathering VLAN data from switch stacks", sitesPBar)
@@ -248,139 +246,123 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
         checkedSerials = []
         cidrList = []
         # Grabbing VLANs from any MS series switches starting with switch stacks
-        try:
-            for stack in dashboard.switch.getNetworkSwitchStacks(networkId):
-                for serial in stack['serials']:
-                    checkedSerials.append(serial)
-                for vlan in dashboard.switch.getNetworkSwitchStackRoutingInterfaces(networkId=networkId,
-                                                                                    switchStackId=stack['id']):
-                    vlan['subnet'] = IPNetwork(vlan['subnet'])
-                    if vlan['subnet'] in vpnSubnets:
-                        vlan['inVpn'] = True
-                    else:
-                        vlan['inVpn'] = False
-                    vlan['MS'] = True
-                    vlan['location'] = stack['name']
-                    cidrList.append(vlan['subnet'])
-                    vlanList.append(vlan)
-        except mer.exceptions.APIError as e:
-            # This error will be thrown when dealing with networks that do not have switch stacks
-            # In the context of my organization this is our AWS Virtual MX
-            printv("No switch stacks in this network", sitesPBar)
-        sitesPBar.update(2.5)
-        # Next we check for any layer 3 interfaces on switches that are not in stacks
+        if 'switch' in products:
+            try:
+                for stack in dashboard.switch.getNetworkSwitchStacks(networkId):
+                    for serial in stack['serials']:
+                        checkedSerials.append(serial)
+                    for vlan in dashboard.switch.getNetworkSwitchStackRoutingInterfaces(networkId=networkId,
+                                                                                        switchStackId=stack['id']):
+                        vlan['subnet'] = IPNetwork(vlan['subnet'])
+                        if vlan['subnet'] in vpnSubnets:
+                            vlan['inVpn'] = True
+                        else:
+                            vlan['inVpn'] = False
+                        vlan['MS'] = True
+                        vlan['location'] = stack['name']
+                        cidrList.append(vlan['subnet'])
+                        vlanList.append(vlan)
+            except mer.exceptions.APIError as e:
+                # This error will be thrown when dealing with networks that do not have switch stacks
+                # In the context of my organization this is our AWS Virtual MX
+                printv("No switch stacks in this network", sitesPBar)
 
+        # Next we check for any layer 3 interfaces on switches that are not in stacks
         # Gathering the devices
         printv("Gathering port data from switches", sitesPBar)
-        msDevices = []
-        mrDevices = []
-        for device in dashboard.networks.getNetworkDevices(networkId=networkId):
-            if 'name' not in device:
-                device['name'] = device['mac']
-            if 'MS' in device['model']:
-                ports = dashboard.switch.getDeviceSwitchPorts(serial=device['serial'])
-                lldpcdp = dashboard.devices.getDeviceLldpCdp(serial=device['serial'])
-                if 'ports' in lldpcdp:
-                    lldpcdp = lldpcdp['ports']
-                for port in ports:
-                    cdp = dict()
-                    lldp = dict()
-                    if port['portId'] in lldpcdp:
-                        # Some of these keys are not always in the return body so we have to manually check each one
-                        # CDP
-                        if 'cdp' in lldpcdp[port['portId']]:
-                            # Source Port
-                            if "sourcePort" in lldpcdp[port['portId']]['cdp']:
-                                cdp["sourcePort"] = lldpcdp[port['portId']]['cdp']["sourcePort"]
-                            else:
-                                cdp["sourcePort"] = ''
-                            # Device ID
-                            if "deviceId" in lldpcdp[port['portId']]['cdp']:
-                                cdp["deviceId"] = lldpcdp[port['portId']]['cdp']["deviceId"]
-                            else:
-                                cdp["deviceId"] = ''
-                            # Address
-                            if "address" in lldpcdp[port['portId']]['cdp']:
-                                cdp["address"] = lldpcdp[port['portId']]['cdp']["address"]
-                            else:
-                                cdp["address"] = ''
-                            # Port ID
-                            if "portId" in lldpcdp[port['portId']]['cdp']:
-                                cdp["portId"] = lldpcdp[port['portId']]['cdp']["portId"]
-                            else:
-                                cdp["portId"] = ''
-                        # LLDP
-                        if 'lldp' in lldpcdp[port['portId']]:
-                            # Source Port
-                            if "sourcePort" in lldpcdp[port['portId']]['lldp']:
-                                lldp["sourcePort"] = lldpcdp[port['portId']]['lldp']["sourcePort"]
-                            else:
-                                lldp["sourcePort"] = ''
-                            # System Name
-                            if "systemName" in lldpcdp[port['portId']]['lldp']:
-                                lldp["systemName"] = lldpcdp[port['portId']]['lldp']["systemName"]
-                            else:
-                                lldp["systemName"] = ''
-                            # Management Address
-                            if "managementAddress" in lldpcdp[port['portId']]['lldp']:
-                                lldp["managementAddress"] = lldpcdp[port['portId']]['lldp']["managementAddress"]
-                            else:
-                                lldp["managementAddress"] = ''
-                            # Port ID
-                            if "portId" in lldpcdp[port['portId']]['lldp']:
-                                lldp["portId"] = lldpcdp[port['portId']]['lldp']["portId"]
-                            else:
-                                lldp["portId"] = ''
-                    # Adding the data to the port data
-                    port['cdp'] = cdp
-                    port['lldp'] = lldp
-                device['ports'] = ports
-                msDevices.append(device)
-            if 'MR' in device['model']:
-                device['ports'] = None
-                msDevices.append(device)
-
-        msDevices.sort(key=lambda x: x['name'], reverse=True)
-        mrDevices.sort(key=lambda x: x['name'], reverse=True)
-        # Since the juicy information that we are most likely to care about will be in the MS, we put it first
-        devices = msDevices + mrDevices
-
-        sitesPBar.update(2.5)
+        devs = []
+        if 'switch' in products or 'wireless' in products:
+            for device in dashboard.networks.getNetworkDevices(networkId=networkId):
+                if 'name' not in device:
+                    device['name'] = device['mac']
+                if 'MS' in device['model']:
+                    ports = dashboard.switch.getDeviceSwitchPorts(serial=device['serial'])
+                    if ports:
+                        port_keys = list(set().union(*(p.keys() for p in ports)))
+                        port_statuses = dashboard.switch.getDeviceSwitchPortsStatuses(device['serial'])
+                        if port_statuses:
+                            port_status_keys = list(set().union(*(p.keys() for p in port_statuses)))
+                            port_status_keys.remove("portId")
+                            port_status_keys.remove("enabled")
+                        for port in ports:
+                            if port_statuses:
+                                status = [p for p in port_statuses if p['portId'] == port['portId']]
+                                if status:
+                                    status = status[0]
+                                    for k in port_status_keys:
+                                        if k in status:
+                                            port[k] = status[k]
+                                            if k == 'usageInKb':
+                                                useageInMb = {
+                                                    "total": status['usageInKb']['total'] / 1000,
+                                                    "sent": status['usageInKb']['sent'] / 1000,
+                                                    "recv": status['usageInKb']['recv'] / 1000
+                                                }
+                                                port['usageInMb'] = useageInMb
+                                            if k == 'trafficInKbps':
+                                                trafficInMbps = {
+                                                    "total": status['trafficInKbps']['total'] / 1000,
+                                                    "sent": status['trafficInKbps']['sent'] / 1000,
+                                                    "recv": status['trafficInKbps']['recv'] / 1000
+                                                }
+                                                port['trafficInMbps'] = trafficInMbps
+                                        else:
+                                            port[k] = None
+                                else:
+                                    for k in port_status_keys:
+                                        port[k] = None
+                            for k in port_keys:
+                                if k not in port:
+                                    port[k] = None
+                        device['ports'] = ports
+                    else:
+                        device['ports'] = None
+                    devs.append(device)
+                if 'MR' in device['model']:
+                    device['ports'] = None
+                    devs.append(device)
+            # Now we sort all of the data
+            #msDevices.sort(key=lambda x: x['name'], reverse=True)
+            #mrDevices.sort(key=lambda x: x['name'], reverse=True)
+            # Since the juicy information that we are most likely to care about will be in the MS, we put it first
+            devices = sorted(devs, key=lambda x: (x['model'], x['name']), reverse=True)
+        else:
+            devices = []
 
         # Checking for layer 3 interfaces
-        for device in devices:
-            if device['serial'] in checkedSerials or 'MS' not in device['model']:
-                continue
-            else:
-                for vlan in dashboard.switch.getDeviceSwitchRoutingInterfaces(device['serial']):
-                    vlan['subnet'] = IPNetwork(vlan['subnet'])
-                    if vlan['subnet'] in vpnSubnets:
-                        vlan['inVpn'] = True
-                    else:
-                        vlan['inVpn'] = False
-                    vlan['MS'] = True
-                    vlan['location'] = device['name']
-                    cidrList.append(vlan['subnet'])
-                    vlanList.append(vlan)
-        sitesPBar.update(2.5)
+        if 'switch' in products:
+            for device in devices:
+                if device['serial'] in checkedSerials or 'MS' not in device['model']:
+                    continue
+                else:
+                    for vlan in dashboard.switch.getDeviceSwitchRoutingInterfaces(device['serial']):
+                        vlan['subnet'] = IPNetwork(vlan['subnet'])
+                        if vlan['subnet'] in vpnSubnets:
+                            vlan['inVpn'] = True
+                        else:
+                            vlan['inVpn'] = False
+                        vlan['MS'] = True
+                        vlan['location'] = device['name']
+                        cidrList.append(vlan['subnet'])
+                        vlanList.append(vlan)
 
         # Lastly we get any VLANs that might be on the MX
         printv("Gathering VLAN data from MX security appliances", sitesPBar)
-        try:
-            for vlan in dashboard.appliance.getNetworkApplianceVlans(networkId):
-                vlan['vlanId'] = vlan['id']
-                vlan['subnet'] = IPNetwork(vlan['subnet'])
-                if vlan['subnet'] in vpnSubnets:
-                    vlan['inVpn'] = True
-                else:
-                    vlan['inVpn'] = False
-                vlan['MS'] = False
-                vlan['location'] = 'Appliance'
-                cidrList.append(vlan['subnet'])
-                vlanList.append(vlan)
-        except mer.exceptions.APIError:
-            printv("No VLANs exist on security appliance and or no security appliance exists", sitesPBar)
-        sitesPBar.update(2.5)
+        if 'appliance' in products:
+            try:
+                for vlan in dashboard.appliance.getNetworkApplianceVlans(networkId):
+                    vlan['vlanId'] = vlan['id']
+                    vlan['subnet'] = IPNetwork(vlan['subnet'])
+                    if vlan['subnet'] in vpnSubnets:
+                        vlan['inVpn'] = True
+                    else:
+                        vlan['inVpn'] = False
+                    vlan['MS'] = False
+                    vlan['location'] = 'Appliance'
+                    cidrList.append(vlan['subnet'])
+                    vlanList.append(vlan)
+            except mer.exceptions.APIError:
+                printv("No VLANs exist on security appliances", sitesPBar)
 
         # This can shave off a couple of iterations by allowing us to determine if an ip is even going to be in a site
         # Rather than going over 80 VLANs we instead go over 10 cidrs. Having to do 10 extra iterations is worth it
@@ -388,61 +370,57 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
         # You will see this come into play in the get_ip_data function
         printv("Consolidating site's subnets into CIDR list", sitesPBar)
         cidrs = cidr_merge(cidrList)
-        sitesPBar.update(10)
 
-        clientsFound = False
+        clients = []
         if not get_clients:
             printv("Gathering client data from the site's devices", sitesPBar)
             if os.path.isfile('sites.pkl.old'):
                 printv("Loading previous clients data", sitesPBar)
                 sites_bkp = load_sites('sites.pkl.old')
                 site_bkp = [site for site in sites_bkp if site['Name'] == siteName]
-                if len(site_bkp) > 0:
+                if site_bkp:
+                    printv("Found site in previous data", sitesPBar)
                     clients = site_bkp[0]['Clients']
+                    printv("Restoring device client data", sitesPBar)
                     for device in site_bkp[0]['Devices']:
                         # Getting current matching device
                         dev = [d for d in devices if d['mac'] == device['mac']]
-                        if len(dev) > 0:
+                        if dev:
                             dev[0]['clients'] = device['clients']
-                    devs = [d for d in devices if 'clients' not in d]
-                    if len(devs) > 0:
-                        # This is one of things you are just going to have to accept and move on
-                        n = float(str("{:.2f}".format((10 / (len(devs) * 2)))))
-                        for device in devices:
-                            if 'clients' not in device:
-                                printv("%s did not have any client data backed up" % device['name'], sitesPBar)
-                                device = get_device_clients(dashboard, device, sitesPBar, n)
-                    clientsFound = True
-                    sitesPBar.update(10)
                 else:
-                    printv("No client data for this site found and so we will have to get that data now", sitesPBar)
+                    printv("No client data for this site found", sitesPBar)
+                    # Since the user does not want us to be making any client calls we just leave it as an empty list
+                    for device in devices:
+                        if 'clients' not in device:
+                            device['clients'] = []
             else:
-                printv("No sites pickle found and so we will have to get that data now", sitesPBar)
-
-        if not clientsFound:
-            if len(devices) > 0:
-                n = float(str("{:.2f}".format((10 / (len(devices) * 2)))))
-            else:
-                n = 1.0
+                printv("No sites pickle found", sitesPBar)
+                for device in devices:
+                    if 'clients' not in device:
+                        device['clients'] = []
+        else:
+            # Gathering all the client data from the switches
             printv("Gathering client data from the site's devices", sitesPBar)
             for device in devices:
-                device = get_device_clients(dashboard, device, sitesPBar, n)
-            sitesPBar.update(10)
-        # In case our floats didnt get us perfectly to the 70% we are supposed to be at
-        sitesPBar.n = 70
-        sitesPBar.refresh()
-
-        # I have been getting random 502 Bad Gateway errors with this api call which is unfortunate
-        # This would be the much more ideal way of getting the clients on the network
-        # The 'clients' property I added on to each device is messy at best but until this works its our only option
-        printv("Gathering a sample of the network client data", sitesPBar)
-        clients = dashboard.networks.getNetworkClients(networkId)
-        sitesPBar.update(10)
+                clientData = dashboard.devices.getDeviceClients(device['serial'])
+                if clientData:
+                    # Ensuring all the dicts have all the same keys
+                    client_keys = list(set().union(*(c.keys() for c in clientData)))
+                    for client in clientData:
+                        for k in client_keys:
+                            if k not in client:
+                                client[k] = None
+                else:
+                    device['clients'] = []
+            # I have been getting random 502 Bad Gateway errors with this api call which is unfortunate
+            # This would be the much more ideal way of getting the clients on the network
+            # The 'clients' property I added on to each device is messy at best but until this works its our only option
+            printv("Gathering a sample of the network client data", sitesPBar)
+            clients = dashboard.networks.getNetworkClients(networkId)
 
         # Getting ACL and Firewall Rules
         printv("Gathering MS ACL and MX Firewall data", sitesPBar)
-        msACL, mxFW = get_acls(dashboard, networkId, sitesPBar)
-        sitesPBar.update(20)
+        msACL, mxFW = get_acls(dashboard, networkId, products, sitesPBar)
 
         printv("Creating site dictionary", sitesPBar)
         site = {
@@ -455,11 +433,10 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
             'VPNSubnets': vpnSubnets,
             'ACL': msACL,
             'Firewall': mxFW,
-            'Cidrs': cidrs
+            'Cidrs': cidrs,
+            'Products': products
         }
         sites.append(site)
-        sitesPBar.close()
-        print(("-" * (TERMSIZE)) + "\n")
     return sites
 
 
