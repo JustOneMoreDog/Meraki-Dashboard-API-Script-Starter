@@ -23,7 +23,7 @@ if not os.path.isdir(MERLOGDIR):
     os.mkdir(MERLOGDIR)
 
 global VERBOSE
-VERBOSE = False
+VERBOSE = True
 
 global TERMSIZE
 TERMSIZE = 1
@@ -98,11 +98,11 @@ def get_org_remote_vpn_participants(dashboard, organizationId, networkId):
     return peers
 
 
-def get_acls(dashboard, networkId, pbar=None):
+def get_acls(dashboard, networkId, products, pbar=None):
     # MS ACLs
     msACL = []
     printv("Gathering ACL rules on the MS switches", pbar)
-    try:
+    if 'switch' in products:
         for x, acl in enumerate(dashboard.switch.getNetworkSwitchAccessControlLists(networkId)['rules']):
             # Cleaning up the dict and formatting it accordingly
             tmp = {}
@@ -119,12 +119,13 @@ def get_acls(dashboard, networkId, pbar=None):
             else:
                 tmp['dstCidr'] = [IPNetwork(network) for network in acl['dstCidr'].split(",")]
             msACL.append(tmp)
-    except mer.exceptions.APIError as e:
+    else:
         msACL = []
+    pbar.update(5)
     # MX Firewall
     mxFW = []
     printv("Gathering Firewalls rules on the MX appliances", pbar)
-    try:
+    if 'appliance' in products:
         for x, acl in enumerate(
                 dashboard.appliance.getNetworkApplianceFirewallL3FirewallRules(networkId)['rules'][:-1]):
             # Cleaning up the dict and formatting it accordingly
@@ -142,60 +143,11 @@ def get_acls(dashboard, networkId, pbar=None):
             else:
                 tmp['dstCidr'] = [IPNetwork(network) for network in acl['destCidr'].split(",")]
             mxFW.append(tmp)
-    except mer.exceptions.APIError as e:
+    else:
         mxFW = []
+    pbar.update(5)
     return msACL, mxFW
 
-
-def get_device_clients(dashboard, device, clientsPBar, n=1.0):
-    clientsPBar.set_description("Gathering client data on %s" % device['name'])
-    clientData = [c for c in dashboard.devices.getDeviceClients(device['serial'])]
-    clientsPBar.update(n)
-    clientsPBar.set_description("Gathering LLDP/CDP data on %s" % device['name'])
-    portData = dashboard.devices.getDeviceLldpCdp(device['serial'])
-    if 'ports' in portData:
-        for port, data in portData['ports'].items():
-            client = {
-                'description': None,
-                'dhcpHostname': None,
-                'id': None,
-                'ip': None,
-                'mac': None,
-                'mdnsName': None,
-                'switchport': port,
-                'usage': {'sent': 0.0, 'recv': 0.0},
-                'user': None,
-                'vlan': None
-            }
-            # Checking for any LLDP data
-            if 'lldp' in portData['ports']:
-                if 'managementAddress' in portData['ports'][port]['lldp']:
-                    client['ip'] = portData['ports'][port]['lldp']['managementAddress']
-                if 'systemName' in portData['ports'][port]['lldp']:
-                    client['description'] = portData['ports'][port]['lldp']['systemName']
-                if 'portId' in portData['ports'][port]['lldp']:
-                    if ":" in portData['ports'][port]['lldp']['portId']:
-                        macAddr = portData['ports'][port]['lldp']['portId']
-                        macAddr = str(':'.join(macAddr[i:i + 2] for i in range(0, 12, 2))).upper()
-                        client['mac'] = macAddr
-            # Checking for any CDP data
-            if 'cdp' in portData['ports'][port]:
-                if client['mac'] is None and 'deviceId' in portData['ports'][port]['cdp']:
-                    macAddr = portData['ports'][port]['cdp']['deviceId']
-                    macAddr = str(':'.join(macAddr[i:i + 2] for i in range(0, 12, 2))).upper()
-                    client['mac'] = macAddr
-                else:
-                    if 'deviceId' in portData['ports'][port]['cdp'] and client['description'] is None:
-                        macAddr = portData['ports'][port]['cdp']['deviceId']
-                        macAddr = str(':'.join(macAddr[i:i + 2] for i in range(0, 12, 2))).upper()
-                        client['description'] = macAddr
-                if client['ip'] is None and 'address' in portData['ports'][port]['cdp']:
-                    client['ip'] = portData['ports'][port]['cdp']['address']
-            if client['ip'] is not None:
-                clientData.append(client)
-    device['clients'] = clientData
-    clientsPBar.update(n)
-    return device
 
 def get_sites(dashboard, organizationId, networks, get_clients=False):
     sites = []
@@ -279,7 +231,12 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
         printv("Gathering port data from switches", sitesPBar)
         devs = []
         if 'switch' in products or 'wireless' in products:
-            for device in dashboard.networks.getNetworkDevices(networkId=networkId):
+            network_devices = dashboard.networks.getNetworkDevices(networkId=networkId)
+            if len(network_devices) > 0:
+                n = float(str("{:.2f}".format((20 / (len(network_devices) * 2)))))
+            else:
+                n = None
+            for device in network_devices:
                 if 'name' not in device:
                     device['name'] = device['mac']
                 if 'MS' in device['model']:
@@ -328,6 +285,8 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
                 if 'MR' in device['model']:
                     device['ports'] = None
                     devs.append(device)
+                if n is not None:
+                    sitesPBar.update(n)
             # Now we sort all of the data
             #msDevices.sort(key=lambda x: x['name'], reverse=True)
             #mrDevices.sort(key=lambda x: x['name'], reverse=True)
@@ -335,7 +294,8 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
             devices = sorted(devs, key=lambda x: (x['model'], x['name']), reverse=True)
         else:
             devices = []
-        sitesPBar.update(20) # 50%
+        sitesPBar.n = 50
+        sitesPBar.refresh()
 
         # Checking for layer 3 interfaces
         if 'switch' in products:
@@ -413,6 +373,8 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
             printv("Gathering client data from the site's devices", sitesPBar)
             if len(devices) > 0:
                 n = float(str("{:.2f}".format((10 / (len(devices) * 2)))))
+            else:
+                n = None
             for device in devices:
                 clientData = dashboard.devices.getDeviceClients(device['serial'])
                 if clientData:
@@ -424,7 +386,8 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
                                 client[k] = None
                 else:
                     device['clients'] = []
-                sitesPBar.update(n)
+                if n is not None:
+                    sitesPBar.update(n)
             # I have been getting random 502 Bad Gateway errors with this api call which is unfortunate
             # This would be the much more ideal way of getting the clients on the network
             # The 'clients' property I added on to each device is messy at best but until this works its our only option
@@ -466,14 +429,15 @@ if apikey == '':
         apikey = k.readline().strip()
 dashboard = mer.DashboardAPI(
     api_key=apikey,
-    print_console=VERBOSE,
+    print_console=False,
     maximum_retries=3,
     wait_on_rate_limit=True,
     log_path=MERLOGDIR,
     retry_4xx_error=True,
-    single_request_timeout=300
+    single_request_timeout=60
 )
 organizations = dashboard.organizations.getOrganizations()
+# Hard coding this script to only work on the first organization which is something ill probably change (soon :tm:)
 orgID = organizations[0]['id']
 networks = dashboard.organizations.getOrganizationNetworks(orgID)
 
