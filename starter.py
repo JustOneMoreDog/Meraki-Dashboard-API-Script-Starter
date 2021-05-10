@@ -219,26 +219,33 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
         'Products': []
     }
     sites.append(organizationWide)
+    print(("-" * (TERMSIZE)) + "\n")
 
     for network in networks:
-        print("Working on %s" % network['name'])
-        sitesPBar = None
+        sitesPBar = tqdm(range(0, 100), leave=True)
+        sitesPBar.set_description("Processing %s" % network['name'])
 
         # Site Name and ID
+        printv("Gathering identifiers", sitesPBar)
         siteName = network['name']
         networkId = network['id']
         products = network['productTypes']
 
         # VPN Subnets
+        printv("Gathering VPN data", sitesPBar)
         peers = []
         vpnSubnets = []
         if 'appliance' in products:
             peers = get_org_remote_vpn_participants(dashboard, organizationId, networkId)
+            sitesPBar.update(10)
             vpnSubnets = [
                 IPNetwork(subnet['localSubnet'])
                 for subnet in dashboard.appliance.getNetworkApplianceVpnSiteToSiteVpn(networkId)['subnets']
                 if subnet['useVpn']
             ]
+            sitesPBar.update(10)
+        else:
+            sitesPBar.update(20) # 20%
 
         # VLANs
         printv("Gathering VLAN data from switch stacks", sitesPBar)
@@ -264,8 +271,8 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
                         vlanList.append(vlan)
             except mer.exceptions.APIError as e:
                 # This error will be thrown when dealing with networks that do not have switch stacks
-                # In the context of my organization this is our AWS Virtual MX
                 printv("No switch stacks in this network", sitesPBar)
+        sitesPBar.update(10) # 30%
 
         # Next we check for any layer 3 interfaces on switches that are not in stacks
         # Gathering the devices
@@ -328,6 +335,7 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
             devices = sorted(devs, key=lambda x: (x['model'], x['name']), reverse=True)
         else:
             devices = []
+        sitesPBar.update(20) # 50%
 
         # Checking for layer 3 interfaces
         if 'switch' in products:
@@ -345,6 +353,7 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
                         vlan['location'] = device['name']
                         cidrList.append(vlan['subnet'])
                         vlanList.append(vlan)
+        sitesPBar.update(10) # 60%
 
         # Lastly we get any VLANs that might be on the MX
         printv("Gathering VLAN data from MX security appliances", sitesPBar)
@@ -363,6 +372,7 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
                     vlanList.append(vlan)
             except mer.exceptions.APIError:
                 printv("No VLANs exist on security appliances", sitesPBar)
+        sitesPBar.update(10) # 70%
 
         # This can shave off a couple of iterations by allowing us to determine if an ip is even going to be in a site
         # Rather than going over 80 VLANs we instead go over 10 cidrs. Having to do 10 extra iterations is worth it
@@ -401,6 +411,8 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
         else:
             # Gathering all the client data from the switches
             printv("Gathering client data from the site's devices", sitesPBar)
+            if len(devices) > 0:
+                n = float(str("{:.2f}".format((10 / (len(devices) * 2)))))
             for device in devices:
                 clientData = dashboard.devices.getDeviceClients(device['serial'])
                 if clientData:
@@ -412,15 +424,20 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
                                 client[k] = None
                 else:
                     device['clients'] = []
+                sitesPBar.update(n)
             # I have been getting random 502 Bad Gateway errors with this api call which is unfortunate
             # This would be the much more ideal way of getting the clients on the network
             # The 'clients' property I added on to each device is messy at best but until this works its our only option
             printv("Gathering a sample of the network client data", sitesPBar)
             clients = dashboard.networks.getNetworkClients(networkId)
+        # In case our floats didnt get us perfectly to the 85% we are supposed to be at
+        sitesPBar.n = 85
+        sitesPBar.refresh()
 
         # Getting ACL and Firewall Rules
         printv("Gathering MS ACL and MX Firewall data", sitesPBar)
         msACL, mxFW = get_acls(dashboard, networkId, products, sitesPBar)
+        # Progress now at 95%
 
         printv("Creating site dictionary", sitesPBar)
         site = {
@@ -437,6 +454,9 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
             'Products': products
         }
         sites.append(site)
+        sitesPBar.update(10) # 100%
+        sitesPBar.close()	
+        print(("-" * (TERMSIZE)) + "\n")
     return sites
 
 
