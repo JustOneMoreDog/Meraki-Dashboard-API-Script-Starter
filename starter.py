@@ -445,64 +445,6 @@ def export_sites(sites, filepath):
         json.dump(obj=sites, fp=f, cls=SitesEncoder)
 
 
-# Proof of concept function that will, on average, decrease the size of the site variable json file by 35%
-# Make sure that you save the mappings somewhere or else you will never be able to recover your data
-def compress_sites(data, mappings, keys, pointer, counter):
-    import string
-    compressed_data = []
-    for d in data:
-        compressed_d = dict()
-        for k, v in d.items():
-            # Checking if the key is in our mappings
-            if k not in mappings:
-                # If the keys length is greater than 3 we swap it out
-                if len(k) > 3:
-                    if pointer == len(keys):
-                        pointer = 0
-                        counter += 1
-                    # Adding the key to our mapping
-                    mappings[k] = str(keys[pointer] + str(counter))
-                    pointer += 1
-                else:
-                    # If the length is not long enough, then we just map the key to itself
-                    mappings[k] = k
-            # Checking if we need to make a recursive call on the value
-            # If the value (v) is a list of dicts, then we make the recursive call
-            if isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict):
-                compressed_d[mappings[k]], mappings = compress_sites(v, mappings, keys, pointer, counter)
-            else:
-                # However, if it is not a list of dicts, then we check if it is a string
-                if isinstance(v, str):
-                    # Then we check if the value has been mapped
-                    if v not in mappings:
-                        # Same as above making sure that it is worth mapping
-                        if len(v) > 3:
-                            if pointer == len(keys):
-                                pointer = 0
-                                counter += 1
-                            mappings[v] = str(keys[pointer] + str(counter))
-                            pointer += 1
-                        else:
-                            mappings[v] = v
-                    else:
-                        compressed_d[mappings[k]] = mappings[v]
-                else:
-                    compressed_d[mappings[k]] = v
-        compressed_data.append(compressed_d)
-    return compressed_data, mappings
-
-
-def compare_results(orig, new):
-    os.remove("tester.json")
-    os.remove("tester2.json")
-    export_sites(orig, "tester.json")
-    export_sites(new, "tester2.json")
-    orig_size = os.path.getsize("tester.json")
-    new_size = os.path.getsize("tester2.json")
-    print("Original:\n%f\nNew:\n%f\nDifference:\n%f\nPercent:\n%f" %
-          (orig_size, new_size, orig_size - new_size, (orig_size - new_size) / orig_size))
-
-
 apikey = ''
 if apikey == '':
     with open('apikey', 'r') as k:
