@@ -1,13 +1,14 @@
+import string
 import meraki as mer
 import pickle
-from netaddr import *
-import netaddr
-from tqdm import tqdm
-from tqdm.utils import _term_move_up
 import os
 import time
+import json
 import shutil
-
+import netaddr
+from netaddr import *
+from tqdm import tqdm
+from tqdm.utils import _term_move_up
 
 # Logs go into a log directory and are $(unix time).log
 LOGDIR = os.path.join(os.getcwd(), "logs")
@@ -91,10 +92,12 @@ def get_org_remote_vpn_participants(dashboard, organizationId, networkId):
     orgVpnData = dashboard.appliance.getOrganizationApplianceVpnStats(organizationId=organizationId)
     siteVpnData = None
     siteVpnData = [network for network in orgVpnData if network['networkId'] == networkId]
-    if siteVpnData is not None:
+    if siteVpnData:
         siteVpnData = siteVpnData[0]
-    peers = [(peer['networkId'], peer['networkName']) for peer in siteVpnData['merakiVpnPeers']]
-    peers.append((siteVpnData['networkId'], siteVpnData['networkName']))
+        peers = [(peer['networkId'], peer['networkName']) for peer in siteVpnData['merakiVpnPeers']]
+        peers.append((siteVpnData['networkId'], siteVpnData['networkName']))
+    else:
+        peers = []
     return peers
 
 
@@ -190,11 +193,15 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
         if 'appliance' in products:
             peers = get_org_remote_vpn_participants(dashboard, organizationId, networkId)
             sitesPBar.update(10)
-            vpnSubnets = [
-                IPNetwork(subnet['localSubnet'])
-                for subnet in dashboard.appliance.getNetworkApplianceVpnSiteToSiteVpn(networkId)['subnets']
-                if subnet['useVpn']
-            ]
+            vpn_subnets = dashboard.appliance.getNetworkApplianceVpnSiteToSiteVpn(networkId)
+            if vpn_subnets and 'subnets' in vpn_subnets:
+                vpnSubnets = [
+                    IPNetwork(subnet['localSubnet'])
+                    for subnet in vpn_subnets['subnets']
+                    if subnet['useVpn']
+                ]
+            else:
+                vpnSubnets = []
             sitesPBar.update(10)
         else:
             sitesPBar.update(20) # 20%
@@ -375,24 +382,24 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
                 n = float(str("{:.2f}".format((10 / (len(devices) * 2)))))
             else:
                 n = None
+            # I have been getting random 502 Bad Gateway errors with this api call which is unfortunate
+            # This would be the much more ideal way of getting the clients on the network
+            # The 'clients' property I added on to each device is messy at best but until this works its our only option
+            printv("Gathering the network client data", sitesPBar)
+            clients = dashboard.networks.getNetworkClients(networkId)
             for device in devices:
                 clientData = dashboard.devices.getDeviceClients(device['serial'])
                 if clientData:
-                    # Ensuring all the dicts have all the same keys
-                    client_keys = list(set().union(*(c.keys() for c in clientData)))
                     for client in clientData:
-                        for k in client_keys:
-                            if k not in client:
-                                client[k] = None
+                        # If we do not have an entry in the network wide clients list for this client
+                        # We match on the id since it is/should be unique "id": "k0a9dc8"
+                        if not any(c for c in clients if c['id'] == client['id']):
+                            clients.append(client)
+                    device['clients'] = clientData
                 else:
                     device['clients'] = []
                 if n is not None:
                     sitesPBar.update(n)
-            # I have been getting random 502 Bad Gateway errors with this api call which is unfortunate
-            # This would be the much more ideal way of getting the clients on the network
-            # The 'clients' property I added on to each device is messy at best but until this works its our only option
-            printv("Gathering a sample of the network client data", sitesPBar)
-            clients = dashboard.networks.getNetworkClients(networkId)
         # In case our floats didnt get us perfectly to the 85% we are supposed to be at
         sitesPBar.n = 85
         sitesPBar.refresh()
@@ -421,6 +428,79 @@ def get_sites(dashboard, organizationId, networks, get_clients=False):
         sitesPBar.close()	
         print(("-" * (TERMSIZE)) + "\n")
     return sites
+
+
+# This allows us to export the sites variable as json
+class SitesEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, IPNetwork):
+            return str(o)
+        else:
+            return o.__dict__
+
+
+# If you want to save the sites variable to json for backup purposes you can use this function
+def export_sites(sites, filepath):
+    with open(filepath, "w") as f:
+        json.dump(obj=sites, fp=f, cls=SitesEncoder)
+
+
+# Proof of concept function that will, on average, decrease the size of the site variable json file by 35%
+# Make sure that you save the mappings somewhere or else you will never be able to recover your data
+def compress_sites(data, mappings, keys, pointer, counter):
+    import string
+    compressed_data = []
+    for d in data:
+        compressed_d = dict()
+        for k, v in d.items():
+            # Checking if the key is in our mappings
+            if k not in mappings:
+                # If the keys length is greater than 3 we swap it out
+                if len(k) > 3:
+                    if pointer == len(keys):
+                        pointer = 0
+                        counter += 1
+                    # Adding the key to our mapping
+                    mappings[k] = str(keys[pointer] + str(counter))
+                    pointer += 1
+                else:
+                    # If the length is not long enough, then we just map the key to itself
+                    mappings[k] = k
+            # Checking if we need to make a recursive call on the value
+            # If the value (v) is a list of dicts, then we make the recursive call
+            if isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict):
+                compressed_d[mappings[k]], mappings = compress_sites(v, mappings, keys, pointer, counter)
+            else:
+                # However, if it is not a list of dicts, then we check if it is a string
+                if isinstance(v, str):
+                    # Then we check if the value has been mapped
+                    if v not in mappings:
+                        # Same as above making sure that it is worth mapping
+                        if len(v) > 3:
+                            if pointer == len(keys):
+                                pointer = 0
+                                counter += 1
+                            mappings[v] = str(keys[pointer] + str(counter))
+                            pointer += 1
+                        else:
+                            mappings[v] = v
+                    else:
+                        compressed_d[mappings[k]] = mappings[v]
+                else:
+                    compressed_d[mappings[k]] = v
+        compressed_data.append(compressed_d)
+    return compressed_data, mappings
+
+
+def compare_results(orig, new):
+    os.remove("tester.json")
+    os.remove("tester2.json")
+    export_sites(orig, "tester.json")
+    export_sites(new, "tester2.json")
+    orig_size = os.path.getsize("tester.json")
+    new_size = os.path.getsize("tester2.json")
+    print("Original:\n%f\nNew:\n%f\nDifference:\n%f\nPercent:\n%f" %
+          (orig_size, new_size, orig_size - new_size, (orig_size - new_size) / orig_size))
 
 
 apikey = ''
@@ -453,3 +533,9 @@ if os.path.isfile('sites.pkl'):
 else:
     sites = get_sites(dashboard, orgID, networks, get_clients=True)
     save_sites('sites.pkl', sites)
+
+
+new, mappings = compress_sites(sites, dict(), string.ascii_letters, 0, 0)
+compare_results(sites, new)
+
+
