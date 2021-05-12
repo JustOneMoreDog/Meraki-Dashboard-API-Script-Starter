@@ -476,8 +476,3 @@ else:
     sites = get_sites(dashboard, orgID, networks, get_clients=True)
     save_sites('sites.pkl', sites)
 
-
-new, mappings = compress_sites(sites, dict(), string.ascii_letters, 0, 0)
-compare_results(sites, new)
-
-
